@@ -1,0 +1,25 @@
+{
+  "name": "vulnerable-windows-app-attack-tool",
+  "version": "1.0.0",
+  "description": "Attack tool for the Vulnerable Windows App (educational purposes only)",
+  "main": "dist/attack.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/attack.js"
+  },
+  "keywords": [
+    "security",
+    "education",
+    "demo"
+  ],
+  "author": "TechmoNoway",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.18",
+    "typescript": "^4.9.4"
+  },
+  "type": "module"
+}
