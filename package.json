@@ -21,5 +21,8 @@
     "concurrently": "^7.6.0",
     "electron": "^22.0.0",
     "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
   }
 }

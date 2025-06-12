@@ -4,6 +4,8 @@ import * as fs from "fs";
 import * as http from "http";
 import { exec } from "child_process";
 import * as url from "url";
+import * as windowsVulns from "./windows-vulns";
+import * as database from "./database";
 
 // Global reference to prevent garbage collection
 let mainWindow: BrowserWindow | null = null;
@@ -41,9 +43,6 @@ const server = http.createServer((req, res) => {
           );
         }
       });
-    } else {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "No command provided" }));
     }
   } else if (pathname === "/api/read-file") {
     // VULNERABILITY: Remote file reading without validation
@@ -108,10 +107,226 @@ const server = http.createServer((req, res) => {
         platform: process.platform,
       })
     );
+  } else if (pathname === "/api/windows/dll-hijack") {
+    // DLL Hijacking vulnerability
+    const dllPath = query.path as string;
+    if (dllPath) {
+      const result = windowsVulns.simulateDllLoading(dllPath);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } else {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "No DLL path provided" }));
+    }
+  } else if (pathname === "/api/windows/insecure-file") {
+    // Insecure file permissions vulnerability
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", () => {
+      try {
+        const { path: filePath, content } = JSON.parse(body);
+        if (filePath && content !== undefined) {
+          const result = windowsVulns.createFileWithInsecurePermissions(
+            filePath,
+            content
+          );
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Missing path or content" }));
+        }
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid JSON" }));
+      }
+    });
+  } else if (pathname === "/api/windows/unquoted-service") {
+    // Unquoted Service Path vulnerability
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", () => {
+      try {
+        const { name, displayName, binPath } = JSON.parse(body);
+        if (name && displayName && binPath) {
+          const result = windowsVulns.createServiceWithUnquotedPath(
+            name,
+            displayName,
+            binPath
+          );
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Missing required parameters" }));
+        }
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid JSON" }));
+      }
+    });
+  } else if (pathname === "/api/windows/registry") {
+    // Registry Modification vulnerability
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", () => {
+      try {
+        const { key, valueName, data } = JSON.parse(body);
+        if (key && valueName && data !== undefined) {
+          const result = windowsVulns.writeToRegistry(key, valueName, data);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Missing required parameters" }));
+        }
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid JSON" }));
+      }
+    });
+  } else if (pathname === "/api/windows/alt-stream") {
+    // Windows Alternate Data Stream vulnerability
+    const filePath = query.path as string;
+    if (filePath) {
+      const result = windowsVulns.accessWindowsSpecificPath(filePath);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } else {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "No file path provided" }));
+    }
+  } else if (pathname === "/api/login") {
+    // VULNERABILITY: SQL injection in login
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", () => {
+      try {
+        const { username, password } = JSON.parse(body);
+
+        if (mainWindow) {
+          mainWindow.webContents.send(
+            "log-message",
+            `Login attempt: username=${username}`
+          );
+        }
+
+        // Attempt login with vulnerable function
+        database
+          .loginUser(username, password)
+          .then((user) => {
+            if (user) {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              // Avoid sending password in response
+              const { password, ...userWithoutPassword } = user;
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  user: userWithoutPassword,
+                  message: "Login successful",
+                })
+              );
+
+              if (mainWindow) {
+                mainWindow.webContents.send(
+                  "log-message",
+                  `Login successful: ${username} (${user.role})`
+                );
+              }
+            } else {
+              res.writeHead(401, { "Content-Type": "application/json" });
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  message: "Invalid username or password",
+                })
+              );
+
+              if (mainWindow) {
+                mainWindow.webContents.send("log-message", `Login failed: ${username}`);
+              }
+            }
+          })
+          .catch((error) => {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                success: false,
+                message: "Error during login",
+                error: error.message,
+              })
+            );
+
+            if (mainWindow) {
+              mainWindow.webContents.send("log-message", `Login error: ${error.message}`);
+            }
+          });
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid JSON" }));
+      }
+    });
+  } else if (pathname === "/api/search-users") {
+    // VULNERABILITY: SQL injection in search
+    const searchTerm = (query.term as string) || "";
+
+    if (mainWindow) {
+      mainWindow.webContents.send("log-message", `User search: term=${searchTerm}`);
+    }
+
+    database
+      .searchUsers(searchTerm)
+      .then((users) => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            users,
+          })
+        );
+      })
+      .catch((error) => {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: false,
+            message: "Error searching users",
+            error: error.message,
+          })
+        );
+
+        if (mainWindow) {
+          mainWindow.webContents.send("log-message", `Search error: ${error.message}`);
+        }
+      });
   } else {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found" }));
   }
+});
+
+// Set up the log callback for Windows vulnerabilities
+windowsVulns.setLogCallback((message) => {
+  if (mainWindow) {
+    mainWindow.webContents.send("log-message", message);
+  }
+});
+
+// Initialize the database
+database.initializeDatabase().catch((err) => {
+  console.error("Failed to initialize database:", err);
 });
 
 // Start the server when the app is ready
